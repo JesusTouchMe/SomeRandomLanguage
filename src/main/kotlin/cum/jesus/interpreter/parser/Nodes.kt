@@ -17,6 +17,18 @@ data class StringNode(val token: Token) : Node(token.start, token.end) {
     }
 }
 
+data class ListNode(val elementNodes: ArrayList<Node>, val posStart: Position, val posEnd: Position) : Node(posStart, posEnd) {
+    override fun toString(): String {
+        var string = "([";
+        for (s in elementNodes) {
+            string += "$s, ";
+        }
+        string += "])";
+
+        return string;
+    }
+}
+
 data class BinOpNode(val leftNode: Node, val token: Token, val rightNode: Node) : Node(leftNode.start, rightNode.end) {
     override fun toString(): String {
         return "($leftNode, $token, $rightNode)";
