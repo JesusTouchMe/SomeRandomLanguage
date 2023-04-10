@@ -27,10 +27,17 @@ object Interpreter {
         return RuntimeResult().success(number);
     }
 
+    private fun visitStringNode(node: StringNode, context: Context): RuntimeResult {
+        val string = StringVal(node.token.value as String)
+            .setContext(context)
+            .setPos(node.start, node.end);
+        return RuntimeResult().success(string);
+    }
+
     private fun visitVarAccessNode(node: VarAccessNode, context: Context): RuntimeResult {
         val res = RuntimeResult();
         val varName = node.token.value as String;
-        var value = context.symbolTable!!.get(varName) as Number
+        var value = context.symbolTable!!.get(varName) as Value?
             ?: return res.failure(RuntimeError(node.start, node.end, "'$varName' is not defined", context));
 
         value = value.copy().setPos(node.start, node.end);
@@ -40,23 +47,23 @@ object Interpreter {
     private fun visitVarAssignNode(node: VarAssignNode, context: Context): RuntimeResult {
         val res = RuntimeResult();
         val varName = node.token.value as String;
-        val value = res.register(visit(node.node, context) as RuntimeResult);
+        val value = res.register(visit(node.node, context) as RuntimeResult) as Value;
         if (res.error != null) return res;
 
-        context.symbolTable!!.set(varName, value!!);
+        context.symbolTable!!.set(varName, value);
         return res.success(value);
     }
 
     private fun visitBinOpNode(node: BinOpNode, context: Context): RuntimeResult {
         val res = RuntimeResult();
 
-        val left = res.register(visit(node.leftNode, context) as RuntimeResult) as Number;
+        val left = res.register(visit(node.leftNode, context) as RuntimeResult) as Value;
         if (res.error != null) return res;
 
-        val right = res.register(visit(node.rightNode, context) as RuntimeResult) as Number;
+        val right = res.register(visit(node.rightNode, context) as RuntimeResult) as Value;
         if (res.error != null) return res;
 
-        val result: Pair<Number?, Error?> = when (node.token.type) {
+        val result: Pair<Value?, Error?> = when (node.token.type) {
             TokenType.PLUS -> left.addedTo(right);
             TokenType.MINUS -> left.subbedBy(right);
             TokenType.MUL -> left.multedBy(right);
@@ -90,11 +97,11 @@ object Interpreter {
 
         if (node.token.type == TokenType.MINUS) {
             val (n, e) = number.multedBy(Number((-1).toDouble()));
-            number = n;
+            number = n as Number;
             error = e;
         } else if (node.token.type == TokenType.NOT) {
             val (n, e) = number.notted();
-            number = n;
+            number = n as Number;
             error = e;
         }
 
@@ -109,7 +116,7 @@ object Interpreter {
         val res = RuntimeResult();
 
         for ((condition, expr) in node.cases) {
-            val conditionValue = res.register(visit(condition, context) as RuntimeResult) as Number;
+            val conditionValue = res.register(visit(condition, context) as RuntimeResult) as Value;
             if (res.error != null) return res;
 
             if (conditionValue.isTrue()) {
@@ -168,7 +175,7 @@ object Interpreter {
         val res = RuntimeResult();
 
         while (true) {
-            val condition = res.register(visit(node.condition, context) as RuntimeResult) as Number;
+            val condition = res.register(visit(node.condition, context) as RuntimeResult) as Value;
             if (res.error != null) return res;
 
             if (!condition.isTrue()) break;
@@ -178,5 +185,38 @@ object Interpreter {
         }
 
         return res.success(null);
+    }
+
+    fun visitFunDefNode(node: FunDefNode, context: Context): RuntimeResult {
+        val res = RuntimeResult();
+
+        val funName = (if (node.varName != null) node.varName.value else null) as String?;
+        val bodyNode = node.bodyNode;
+        val argNames = ArrayList(node.argNameTokens.map { argName -> argName.value as String })
+        val funValue = Function(funName, bodyNode, argNames).setContext(context).setPos(node.start, node.end);
+
+        if (node.varName != null)
+            context.symbolTable?.set(funName!!, funValue);
+
+        return res.success(funValue);
+    }
+
+    fun visitCallNode(node: CallNode, context: Context): RuntimeResult {
+        val res = RuntimeResult();
+        val args = ArrayList<Value>();
+
+        var valueToCall = res.register(visit(node.nodeToCall, context) as RuntimeResult);
+        if (res.error != null) return res;
+        valueToCall = valueToCall!!.copy().setPos(node.start, node.end);
+
+        for (argNode in node.argNodes) {
+            args.add(res.register(visit(argNode, context) as RuntimeResult)!!);
+            if (res.error != null) return res;
+        }
+
+        val returnValue = res.register(valueToCall.execute(args));
+        if (res.error != null) return res;
+
+        return res.success(returnValue);
     }
 }

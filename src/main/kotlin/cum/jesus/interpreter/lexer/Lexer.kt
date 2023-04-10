@@ -52,6 +52,8 @@ class Lexer(private val fileName: String, private var text: String) {
                 tokens.add(makeNumber());
             } else if (cur!! in LETTERS) {
                 tokens.add(makeIdent());
+            } else if (cur == '"') {
+                tokens.add(makeString());
             } else if (cur == '+') {
                 tokens.add(Token(TokenType.PLUS, p_start = this.pos));
                 advance();
@@ -77,6 +79,12 @@ class Lexer(private val fileName: String, private var text: String) {
                 advance()
             } else if (cur == '}') {
                 tokens.add(Token(TokenType.RBRACE, p_start = this.pos));
+                advance()
+            } else if (cur == '[') {
+                tokens.add(Token(TokenType.LBRACKET, p_start = this.pos));
+                advance()
+            } else if (cur == ']') {
+                tokens.add(Token(TokenType.RBRACKET, p_start = this.pos));
                 advance()
             } else if (cur == '!') {
                 val (tok, error) = makeNotEquals();
@@ -104,7 +112,37 @@ class Lexer(private val fileName: String, private var text: String) {
         return Pair(tokens, null);
     }
 
-    fun makeNumber(): Token {
+    private fun makeString(): Token {
+        var string = "";
+        val start = pos.copy();
+        var escapeCharacter = false;
+
+        advance();
+
+        val escapeCharacters = mapOf<Char, Char>(
+            'n' to '\n',
+            't' to '\t'
+        );
+
+        while (cur != null && (cur != '"' || escapeCharacter)) {
+            if (escapeCharacter) {
+                string += escapeCharacters.getOrDefault(cur, cur)
+                escapeCharacter = false
+            } else {
+                if (cur == '\\') {
+                    escapeCharacter = true
+                } else {
+                    string += cur
+                }
+            }
+            advance()
+        }
+
+        advance();
+        return Token(TokenType.STRING, string, start, pos);
+    }
+
+    private fun makeNumber(): Token {
         var numStr = "";
         var dotCount = 0;
 
@@ -129,7 +167,7 @@ class Lexer(private val fileName: String, private var text: String) {
         }
     }
 
-    fun makeIdent(): Token {
+    private fun makeIdent(): Token {
         var identString = "";
         val start = pos.copy();
 
@@ -149,7 +187,7 @@ class Lexer(private val fileName: String, private var text: String) {
         return Token(tokenType, identString, start, pos);
     }
 
-    fun makeNotEquals(): Pair<Token?, Error?> {
+    private fun makeNotEquals(): Pair<Token?, Error?> {
         val start = pos.copy();
         advance();
 
@@ -163,7 +201,7 @@ class Lexer(private val fileName: String, private var text: String) {
         return Pair(null, ExpectedCharError(start, pos, "'=' (after '!')"));
     }
 
-    fun makeEquals(): Token {
+    private fun makeEquals(): Token {
         val start = pos.copy();
         var tokenType = TokenType.ASSIGN;
 
@@ -177,7 +215,7 @@ class Lexer(private val fileName: String, private var text: String) {
         return Token(tokenType, p_start = start, p_end = pos);
     }
 
-    fun makeLT(): Token {
+    private fun makeLT(): Token {
         val start = pos.copy();
         var tokenType = TokenType.LT;
 
@@ -191,7 +229,7 @@ class Lexer(private val fileName: String, private var text: String) {
         return Token(tokenType, p_start = start, p_end = pos);
     }
 
-    fun makeGT(): Token {
+    private fun makeGT(): Token {
         val start = pos.copy();
         var tokenType = TokenType.GT;
 
@@ -205,7 +243,7 @@ class Lexer(private val fileName: String, private var text: String) {
         return Token(tokenType, p_start = start, p_end = pos);
     }
 
-    fun makeMinusOrArrow(): Token {
+    private fun makeMinusOrArrow(): Token {
         val start = pos.copy();
         var tokenType = TokenType.MINUS;
 

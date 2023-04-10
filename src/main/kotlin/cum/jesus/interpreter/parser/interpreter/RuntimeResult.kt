@@ -4,15 +4,15 @@ import cum.jesus.interpreter.parser.Node
 import cum.jesus.interpreter.utils.Error
 
 class RuntimeResult {
-    var value: Any? = null;
+    var value: Value? = null;
     var error: Error? = null;
 
-    fun register(res: RuntimeResult): Any? {
+    fun register(res: RuntimeResult): Value? {
         if (res.error != null) error = res.error;
         return res.value;
     }
 
-    fun success(value: Any?): RuntimeResult {
+    fun success(value: Value?): RuntimeResult {
         this.value = value;
         return this;
     }

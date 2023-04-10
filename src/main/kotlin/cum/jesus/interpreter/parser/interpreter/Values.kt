@@ -1,6 +1,8 @@
 package cum.jesus.interpreter.parser.interpreter
 
 import cum.jesus.interpreter.lexer.Position
+import cum.jesus.interpreter.lexer.Token
+import cum.jesus.interpreter.parser.Node
 import cum.jesus.interpreter.utils.RuntimeError
 import cum.jesus.interpreter.utils.Error
 import cum.jesus.interpreter.utils.toBoolean
@@ -83,6 +85,10 @@ open class Value {
 
     open fun notted(): Pair<Value?, Error?> {
         return Pair(null, illegalOperation());
+    }
+
+    open fun execute(args: ArrayList<Value>): RuntimeResult {
+        return RuntimeResult().failure(illegalOperation());
     }
 
     open fun copy(): Value {
@@ -205,4 +211,70 @@ class Number(val value: kotlin.Number) : Value() {
     }
 }
 
-//11:57 video
+class Function(var name: String?, val bodyNode: Node, val argNames: ArrayList<String>) : Value() {
+    init {
+        if (name == null) name = "lambda";
+    }
+
+    override fun execute(args: ArrayList<Value>): RuntimeResult {
+        val res = RuntimeResult();
+        val newContext = Context(name!!, context, start);
+        newContext.symbolTable = SymbolTable(newContext.parent?.symbolTable);
+
+        if (args.size > argNames.size)
+            return res.failure(RuntimeError(start!!, end!!, "${args.size - argNames.size} too many args passed into function '$name'", context));
+
+        if (args.size < argNames.size)
+            return res.failure(RuntimeError(start!!, end!!, "${argNames.size - args.size} too few args passed into function '$name'", context));
+
+        for (i in 0 until args.size) {
+            val argName = argNames[i];
+            val argValue = args[i];
+            argValue.setContext(newContext);
+            newContext.symbolTable!!.set(argName, argValue);
+        }
+
+        val value = res.register(Interpreter.visit(bodyNode, newContext) as RuntimeResult);
+        if (res.error != null) return res;
+
+        return res.success(value);
+    }
+
+    override fun copy(): Value {
+        val copy = Function(this.name, this.bodyNode, this.argNames);
+        copy.setContext(this.context);
+        copy.setPos(this.start, this.end);
+
+        return copy;
+    }
+
+    override fun toString(): String {
+        return if (name == "lambda") "anonymous function" else "function $name";
+    }
+}
+
+class StringVal(val value: String) : Value() {
+    override fun addedTo(other: Value): Pair<Value?, Error?> {
+        if (other is StringVal)
+            return Pair(StringVal(value + other.value), null);
+        if (other is Number)
+            return Pair(StringVal(value + other.value.toString()), null);
+        return Pair(null, illegalOperation(other));
+    }
+
+    override fun isTrue(): Boolean {
+        return value.isNotEmpty();
+    }
+
+    override fun copy(): Value {
+        val copy = StringVal(this.value);
+        copy.setPos(this.start, this.end);
+        copy.setContext(this.context);
+
+        return copy;
+    }
+
+    override fun toString(): String {
+        return value;
+    }
+}

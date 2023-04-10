@@ -254,6 +254,10 @@ class Parser(val tokens: ArrayList<Token>) {
             res.registerAdvance();
             advance();
             return res.success(NumberNode(tok));
+        } else if (tok.type == TokenType.STRING) {
+            res.registerAdvance();
+            advance();
+            return res.success(StringNode(tok));
         } else if (tok.type == TokenType.IDENTIFIER) {
             res.registerAdvance();
             advance();
@@ -291,7 +295,7 @@ class Parser(val tokens: ArrayList<Token>) {
             return res.success(funcDef);
         }
 
-        return res.failure(InvalidSyntaxError(tok.start, tok.end, "Expected int, float, identifier, '+', '-' or '('"));
+        return res.failure(InvalidSyntaxError(tok.start, tok.end, "Expected int, float, identifier, '+', '-', '(', 'if', 'for', 'while', 'fun'"));
     }
 
     fun factor(): ParseResult {
@@ -373,7 +377,7 @@ class Parser(val tokens: ArrayList<Token>) {
         val node = res.register(binaryOp(::compExpr, arrayOf(TokenType.AND, TokenType.OR)));
 
         if (res.error != null)
-            return res.failure(InvalidSyntaxError(currentToken.start, currentToken.end, "Expected 'var', int, float, identifier, '+', '-' or '('"));
+            return res.failure(InvalidSyntaxError(currentToken.start, currentToken.end, "Expected 'var', 'if', 'for', 'while', 'fun', int, float, identifier, '+', '-' or '('"));
 
         return res.success(node);
     }

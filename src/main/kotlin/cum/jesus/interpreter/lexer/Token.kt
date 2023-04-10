@@ -13,6 +13,7 @@ enum class TokenType(val kind: TokenKind, val value: String?) {
     EOF(TokenKind.SPECIAL, null),
     INT(TokenKind.LITERAL, null),
     FLOAT(TokenKind.LITERAL, null),
+    STRING(TokenKind.LITERAL, null),
     ASSIGN(TokenKind.BINARY, "="),
     PLUS(TokenKind.BINARY, "+"),
     MINUS(TokenKind.BINARY, "-"),
@@ -43,7 +44,9 @@ enum class TokenType(val kind: TokenKind, val value: String?) {
     COMMA(TokenKind.BINARY, ","),
     ARROW(TokenKind.BINARY, "->"),
     LBRACE(TokenKind.BRACKET, "{"),
-    RBRACE(TokenKind.BRACKET, "}")
+    RBRACE(TokenKind.BRACKET, "}"),
+    LBRACKET(TokenKind.BRACKET, "["),
+    RBRACKET(TokenKind.BRACKET, "]")
 }
 
 fun listKeywords(): List<TokenType> {

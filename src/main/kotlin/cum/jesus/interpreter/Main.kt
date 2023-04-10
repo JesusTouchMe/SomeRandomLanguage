@@ -40,17 +40,16 @@ fun run(fileName: String, text: String, debug: Boolean): Pair<Any?, Error?> {
     val parser = Parser(tokens);
     val ast = parser.parse();
 
+    if (ast.error != null) return Pair(null, ast.error);
+
     if (debug) {
         println("[DEBUG] ${ast.node}");
     }
 
-    if (ast.error != null) return Pair(null, ast.error);
-
     // interperrt
-    val interpreter = Interpreter;
     val context = Context("<program>")
     context.symbolTable = globalSymbolTable;
-    val result = interpreter.visit(ast.node, context) as RuntimeResult;
+    val result = Interpreter.visit(ast.node, context) as RuntimeResult;
 
     return Pair(result.value, result.error);
 }

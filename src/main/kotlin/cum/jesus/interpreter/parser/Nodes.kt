@@ -11,6 +11,12 @@ data class NumberNode(val token: Token) : Node(token.start, token.end) {
     }
 }
 
+data class StringNode(val token: Token) : Node(token.start, token.end) {
+    override fun toString(): String {
+        return "$token";
+    }
+}
+
 data class BinOpNode(val leftNode: Node, val token: Token, val rightNode: Node) : Node(leftNode.start, rightNode.end) {
     override fun toString(): String {
         return "($leftNode, $token, $rightNode)";
