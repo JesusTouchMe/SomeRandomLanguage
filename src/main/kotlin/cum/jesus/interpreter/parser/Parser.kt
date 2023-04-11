@@ -32,6 +32,205 @@ class Parser(val tokens: ArrayList<Token>) {
         return res;
     }
 
+    fun expr(): ParseResult {
+        val res = ParseResult();
+        if (currentToken.type == TokenType.VAR) {
+            res.registerAdvance();
+            advance();
+
+            if (currentToken.type != TokenType.IDENTIFIER) {
+                return res.failure(InvalidSyntaxError(currentToken.start, currentToken.end, "Expected identifier after var"));
+            }
+
+            val varName = currentToken;
+            res.registerAdvance();
+            advance();
+
+            if (currentToken.type != TokenType.ASSIGN) {
+                return res.failure(InvalidSyntaxError(currentToken.start, currentToken.end, "Expected '=' after variable creation"));
+            }
+
+            res.registerAdvance();
+            advance();
+
+            val expr = res.register(expr());
+            if (res.error != null) return res;
+
+            return res.success(VarAssignNode(varName, expr!!));
+        }
+
+        val node = res.register(binaryOp(::compExpr, arrayOf(TokenType.AND, TokenType.OR)));
+
+        if (res.error != null)
+            return res.failure(InvalidSyntaxError(currentToken.start, currentToken.end, "Expected 'var', 'if', 'for', 'while', 'fun', int, float, identifier, '+', '-' or '('"));
+
+        return res.success(node);
+    }
+
+    fun compExpr(): ParseResult {
+        val res = ParseResult();
+
+        if (currentToken.type == TokenType.NOT) {
+            val tok = currentToken;
+            res.registerAdvance();
+            advance();
+
+            val node = res.register(compExpr());
+            if (res.error != null) return res;
+
+            return res.success(UnaryOpNode(tok, node));
+        }
+
+        val node = res.register(binaryOp(::arithExpr, arrayOf(TokenType.EQ, TokenType.NE, TokenType.LT, TokenType.GT, TokenType.LTE, TokenType.GTE)));
+
+        if (res.error != null) {
+            return res.failure(InvalidSyntaxError(currentToken.start, currentToken.end, "Expected int, float, identifier, '+', '-', '(' or 'not'"))
+        }
+
+        return res.success(node);
+    }
+
+    fun arithExpr(): ParseResult {
+        return binaryOp(::term, arrayOf(TokenType.PLUS, TokenType.MINUS));
+    }
+
+    fun term(): ParseResult {
+        return binaryOp(::factor, arrayOf(TokenType.MUL, TokenType.DIV));
+    }
+
+    fun factor(): ParseResult {
+        val res = ParseResult();
+        val tok = currentToken;
+
+        if (tok.type in arrayOf(TokenType.PLUS, TokenType.MINUS)) {
+            res.registerAdvance();
+            advance();
+
+            val factor = res.register(factor());
+
+            if (res.error != null) return res;
+
+            return res.success(UnaryOpNode(tok, factor));
+        }
+
+        return power();
+    }
+
+    fun power(): ParseResult {
+        return binaryOp(::call, arrayOf(TokenType.POWER), ::factor);
+    }
+
+    fun call(): ParseResult {
+        val res = ParseResult();
+        val atom = res.register(atom());
+        if (res.error != null) return res;
+
+        if (currentToken.type == TokenType.LPAREN) {
+            res.registerAdvance();
+            advance();
+
+            val argNodes = ArrayList<Node>();
+
+            if (currentToken.type == TokenType.RPAREN) {
+                res.registerAdvance();
+                advance();
+            } else {
+                argNodes.add(res.register(expr())!!);
+                if (res.error != null)
+                    return res.failure(InvalidSyntaxError(currentToken.start, currentToken.end, "Expected ')', 'var', 'if', 'for', 'while', 'fun', int, float, identifier, '+', '-', '(' or 'not'"));
+
+                while (currentToken.type == TokenType.COMMA) {
+                    res.registerAdvance();
+                    advance();
+
+                    argNodes.add(res.register(expr())!!);
+                    if (res.error != null) return res;
+                }
+
+                if (currentToken.type != TokenType.RPAREN)
+                    return res.failure(InvalidSyntaxError(currentToken.start, currentToken.end, "Expected ',' or ')'"));
+
+                res.registerAdvance()
+                advance();
+            }
+            return res.success(CallNode(atom!!, argNodes));
+        }
+        return res.success(atom);
+    }
+
+    fun atom(): ParseResult {
+        val res = ParseResult();
+        val tok = currentToken;
+
+        if (tok.type in arrayOf(TokenType.INT, TokenType.FLOAT)) {
+            res.registerAdvance();
+            advance();
+            return res.success(NumberNode(tok));
+        } else if (tok.type == TokenType.STRING) {
+            res.registerAdvance();
+            advance();
+            return res.success(StringNode(tok));
+        } else if (tok.type == TokenType.IDENTIFIER) {
+            res.registerAdvance();
+            advance();
+            return res.success(VarAccessNode(tok));
+        } else if (tok.type == TokenType.LPAREN) {
+            res.registerAdvance();
+            advance();
+            val expr = res.register(expr());
+
+            if (res.error != null) return res;
+
+            if (currentToken.type == TokenType.RPAREN) {
+                res.registerAdvance();
+                advance();
+
+                return res.success(expr);
+            } else {
+                return res.failure(InvalidSyntaxError(currentToken.start, currentToken.end, "Expected ')'"));
+            }
+        } else if (tok.type == TokenType.LBRACKET) {
+            val listExpr = res.register(listExpr());
+            if (res.error != null) return res;
+            return res.success(listExpr);
+        } else if (tok.type == TokenType.IF) {
+            val ifExpr = res.register(ifExpr());
+            if (res.error != null) return res;
+            return res.success(ifExpr);
+        } else if (tok.type == TokenType.FOR) {
+            val forExpr = res.register(forExpr());
+            if (res.error != null) return res;
+            return res.success(forExpr);
+        } else if (tok.type == TokenType.WHILE) {
+            val whileExpr = res.register(whileExpr());
+            if (res.error != null) return res;
+            return res.success(whileExpr);
+        } else if (tok.type == TokenType.FUN) {
+            val funcDef = res.register(funcDef());
+            if (res.error != null) return res;
+            return res.success(funcDef);
+        }
+
+        return res.failure(InvalidSyntaxError(tok.start, tok.end, "Expected int, float, identifier, '+', '-', '(', 'if', 'for', 'while', 'fun'"));
+    }
+
+    fun listExpr(): ParseResult {
+        val res = ParseResult();
+        val elementNodes = ArrayList<Node>();
+        val start = currentToken.start.copy();
+
+        if (currentToken.type != TokenType.LBRACKET)
+            return res.failure(InvalidSyntaxError(currentToken.start, currentToken.end, "Expected ']', 'VAR', 'IF', 'FOR', 'WHILE', 'FUN', int, float, identifier, '+', '-', '(', '[' or 'NOT'"))
+
+        while (currentToken.type == TokenType.COMMA) {
+            res.registerAdvance();
+            advance();
+
+            elementNodes.add(res.register(expr())!!);
+            if (res.error != null) return res;
+        }
+    }
+
     fun ifExpr(): ParseResult {
         val res = ParseResult();
         val cases = ArrayList<Pair<Node?, Node?>>();
@@ -202,184 +401,6 @@ class Parser(val tokens: ArrayList<Token>) {
         }
 
         return res.success(WhileNode(condition!!, body!!));
-    }
-
-    fun power(): ParseResult {
-        return binaryOp(::call, arrayOf(TokenType.POWER), ::factor);
-    }
-
-    fun call(): ParseResult {
-        val res = ParseResult();
-        val atom = res.register(atom());
-        if (res.error != null) return res;
-
-        if (currentToken.type == TokenType.LPAREN) {
-            res.registerAdvance();
-            advance();
-
-            val argNodes = ArrayList<Node>();
-
-            if (currentToken.type == TokenType.RPAREN) {
-                res.registerAdvance();
-                advance();
-            } else {
-                argNodes.add(res.register(expr())!!);
-                if (res.error != null)
-                    return res.failure(InvalidSyntaxError(currentToken.start, currentToken.end, "Expected ')', 'var', 'if', 'for', 'while', 'fun', int, float, identifier, '+', '-', '(' or 'not'"));
-
-                while (currentToken.type == TokenType.COMMA) {
-                    res.registerAdvance();
-                    advance();
-
-                    argNodes.add(res.register(expr())!!);
-                    if (res.error != null) return res;
-                }
-
-                if (currentToken.type != TokenType.RPAREN)
-                    return res.failure(InvalidSyntaxError(currentToken.start, currentToken.end, "Expected ',' or ')'"));
-
-                res.registerAdvance()
-                advance();
-            }
-            return res.success(CallNode(atom!!, argNodes));
-        }
-        return res.success(atom);
-    }
-
-    fun atom(): ParseResult {
-        val res = ParseResult();
-        val tok = currentToken;
-
-        if (tok.type in arrayOf(TokenType.INT, TokenType.FLOAT)) {
-            res.registerAdvance();
-            advance();
-            return res.success(NumberNode(tok));
-        } else if (tok.type == TokenType.STRING) {
-            res.registerAdvance();
-            advance();
-            return res.success(StringNode(tok));
-        } else if (tok.type == TokenType.IDENTIFIER) {
-            res.registerAdvance();
-            advance();
-            return res.success(VarAccessNode(tok));
-        } else if (tok.type == TokenType.LPAREN) {
-            res.registerAdvance();
-            advance();
-            val expr = res.register(expr());
-
-            if (res.error != null) return res;
-
-            if (currentToken.type == TokenType.RPAREN) {
-                res.registerAdvance();
-                advance();
-
-                return res.success(expr);
-            } else {
-                return res.failure(InvalidSyntaxError(currentToken.start, currentToken.end, "Expected ')'"));
-            }
-        } else if (tok.type == TokenType.IF) {
-            val ifExpr = res.register(ifExpr());
-            if (res.error != null) return res;
-            return res.success(ifExpr);
-        } else if (tok.type == TokenType.FOR) {
-            val forExpr = res.register(forExpr());
-            if (res.error != null) return res;
-            return res.success(forExpr);
-        } else if (tok.type == TokenType.WHILE) {
-            val whileExpr = res.register(whileExpr());
-            if (res.error != null) return res;
-            return res.success(whileExpr);
-        } else if (tok.type == TokenType.FUN) {
-            val funcDef = res.register(funcDef());
-            if (res.error != null) return res;
-            return res.success(funcDef);
-        }
-
-        return res.failure(InvalidSyntaxError(tok.start, tok.end, "Expected int, float, identifier, '+', '-', '(', 'if', 'for', 'while', 'fun'"));
-    }
-
-    fun factor(): ParseResult {
-        val res = ParseResult();
-        val tok = currentToken;
-
-        if (tok.type in arrayOf(TokenType.PLUS, TokenType.MINUS)) {
-            res.registerAdvance();
-            advance();
-
-            val factor = res.register(factor());
-
-            if (res.error != null) return res;
-
-            return res.success(UnaryOpNode(tok, factor));
-        }
-
-        return power();
-    }
-
-    fun term(): ParseResult {
-        return binaryOp(::factor, arrayOf(TokenType.MUL, TokenType.DIV));
-    }
-
-    fun arithExpr(): ParseResult {
-        return binaryOp(::term, arrayOf(TokenType.PLUS, TokenType.MINUS));
-    }
-
-    fun compExpr(): ParseResult {
-        val res = ParseResult();
-
-        if (currentToken.type == TokenType.NOT) {
-            val tok = currentToken;
-            res.registerAdvance();
-            advance();
-
-            val node = res.register(compExpr());
-            if (res.error != null) return res;
-
-            return res.success(UnaryOpNode(tok, node));
-        }
-
-        val node = res.register(binaryOp(::arithExpr, arrayOf(TokenType.EQ, TokenType.NE, TokenType.LT, TokenType.GT, TokenType.LTE, TokenType.GTE)));
-
-        if (res.error != null) {
-            return res.failure(InvalidSyntaxError(currentToken.start, currentToken.end, "Expected int, float, identifier, '+', '-', '(' or 'not'"))
-        }
-
-        return res.success(node);
-    }
-
-    fun expr(): ParseResult {
-        val res = ParseResult();
-        if (currentToken.type == TokenType.VAR) {
-            res.registerAdvance();
-            advance();
-
-            if (currentToken.type != TokenType.IDENTIFIER) {
-                return res.failure(InvalidSyntaxError(currentToken.start, currentToken.end, "Expected identifier after var"));
-            }
-
-            val varName = currentToken;
-            res.registerAdvance();
-            advance();
-
-            if (currentToken.type != TokenType.ASSIGN) {
-                return res.failure(InvalidSyntaxError(currentToken.start, currentToken.end, "Expected '=' after variable creation"));
-            }
-
-            res.registerAdvance();
-            advance();
-
-            val expr = res.register(expr());
-            if (res.error != null) return res;
-
-            return res.success(VarAssignNode(varName, expr!!));
-        }
-
-        val node = res.register(binaryOp(::compExpr, arrayOf(TokenType.AND, TokenType.OR)));
-
-        if (res.error != null)
-            return res.failure(InvalidSyntaxError(currentToken.start, currentToken.end, "Expected 'var', 'if', 'for', 'while', 'fun', int, float, identifier, '+', '-' or '('"));
-
-        return res.success(node);
     }
 
     fun funcDef(): ParseResult {

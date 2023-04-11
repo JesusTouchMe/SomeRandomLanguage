@@ -8,7 +8,7 @@ import cum.jesus.interpreter.parser.interpreter.RuntimeResult
 import cum.jesus.interpreter.parser.interpreter.SymbolTable
 import cum.jesus.interpreter.utils.Error
 import cum.jesus.interpreter.parser.interpreter.Number
-
+import cum.jesus.interpreter.utils.toInt
 
 fun main() {
     addGlobals();
@@ -16,6 +16,8 @@ fun main() {
     while (true) {
         print("> ");
         val input = readLine() ?: continue;
+
+        if (input == "exit") break;
 
         val (result, error) = run("<stdin>", input, true);
 
@@ -27,8 +29,9 @@ fun main() {
 val globalSymbolTable = SymbolTable();
 
 fun addGlobals() {
-    globalSymbolTable.set("TRUE", Number(1));
-    globalSymbolTable.set("FALSE", Number(0));
+    globalSymbolTable.set("TRUE", Number(true.toInt()));
+    globalSymbolTable.set("FALSE", Number(false.toInt()));
+    globalSymbolTable.set("NULL", Number(0));
 }
 
 fun run(fileName: String, text: String, debug: Boolean): Pair<Any?, Error?> {
