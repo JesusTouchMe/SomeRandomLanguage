@@ -40,14 +40,14 @@ object Interpreter {
         var value = context.symbolTable!!.get(varName) as Value?
             ?: return res.failure(RuntimeError(node.start, node.end, "'$varName' is not defined", context));
 
-        value = value.copy().setPos(node.start, node.end);
+        value = value.copy().setPos(node.start, node.end).setContext(context);
         return res.success(value);
     }
 
     private fun visitVarAssignNode(node: VarAssignNode, context: Context): RuntimeResult {
         val res = RuntimeResult();
         val varName = node.token.value as String;
-        val value = res.register(visit(node.node, context) as RuntimeResult) as Value;
+        val value = if (node.node == null) Null() else res.register(visit(node.node, context) as RuntimeResult) as Value;
         if (res.error != null) return res;
 
         context.symbolTable!!.set(varName, value);
@@ -115,7 +115,7 @@ object Interpreter {
     fun visitIfNode(node: IfNode, context: Context): RuntimeResult {
         val res = RuntimeResult();
 
-        for ((condition, expr) in node.cases) {
+        for ((condition, expr, shouldReturnNull) in node.cases) {
             val conditionValue = res.register(visit(condition, context) as RuntimeResult) as Value;
             if (res.error != null) return res;
 
@@ -123,22 +123,20 @@ object Interpreter {
                 val exprValue = res.register(visit(expr, context) as RuntimeResult);
                 if (res.error != null) return res;
 
-                return res.success(exprValue!!);
+                return res.success(if (shouldReturnNull) Null() else exprValue);
             }
         }
 
         if (node.elseCase != null) {
-            val elseValue = res.register(visit(node.elseCase, context) as RuntimeResult);
-            if (res.error != null) return res;
-
-            return res.success(elseValue!!);
+            return res.success(Null());
         }
 
-        return res.success(null);
+        return res.success(Null());
     }
 
     fun visitForNode(node: ForNode, context: Context): RuntimeResult {
         val res = RuntimeResult();
+        val elements = ArrayList<Value>();
 
         val startValue = res.register(visit(node.startNode, context) as RuntimeResult) as Number;
         if (res.error != null) return res;
@@ -164,15 +162,17 @@ object Interpreter {
             context.symbolTable!!.set(node.varNameToken.value.toString(), Number(i));
             i += stepValue.value.toDouble();
 
-            res.register(visit(node.bodyNode, context) as RuntimeResult);
+            elements.add(res.register(visit(node.bodyNode, context) as RuntimeResult)!!);
             if (res.error != null) return res;
         }
 
-        return res.success(null);
+        return res.success(if (node.shouldReturnNull) Null() else
+            List(elements).setContext(context).setPos(node.start, node.end));
     }
 
     fun visitWhileNode(node: WhileNode, context: Context): RuntimeResult {
         val res = RuntimeResult();
+        val elements = ArrayList<Value>();
 
         while (true) {
             val condition = res.register(visit(node.condition, context) as RuntimeResult) as Value;
@@ -180,11 +180,12 @@ object Interpreter {
 
             if (!condition.isTrue()) break;
 
-            res.register(visit(node.body, context) as RuntimeResult);
+            elements.add(res.register(visit(node.body, context) as RuntimeResult)!!);
             if (res.error != null) return res;
         }
 
-        return res.success(null);
+        return res.success(if (node.shouldReturnNull) Null() else
+            List(elements).setContext(context).setPos(node.start, node.end));
     }
 
     fun visitFunDefNode(node: FunDefNode, context: Context): RuntimeResult {
@@ -193,7 +194,7 @@ object Interpreter {
         val funName = (if (node.varName != null) node.varName.value else null) as String?;
         val bodyNode = node.bodyNode;
         val argNames = ArrayList(node.argNameTokens.map { argName -> argName.value as String })
-        val funValue = Function(funName, bodyNode, argNames).setContext(context).setPos(node.start, node.end);
+        val funValue = Function(funName, bodyNode, argNames, node.shouldReturnNull).setContext(context).setPos(node.start, node.end);
 
         if (node.varName != null)
             context.symbolTable?.set(funName!!, funValue);
@@ -214,9 +215,43 @@ object Interpreter {
             if (res.error != null) return res;
         }
 
-        val returnValue = res.register(valueToCall.execute(args));
+        var returnValue = res.register(valueToCall.execute(args));
         if (res.error != null) return res;
 
+        returnValue = returnValue!!.copy().setPos(node.start, node.end).setContext(context)
+
         return res.success(returnValue);
+    }
+
+    fun visitListNode(node: ListNode, context: Context): RuntimeResult {
+        val res = RuntimeResult();
+        val elements = ArrayList<Value>();
+
+        for (node in node.elementNodes) {
+            elements.add(res.register(visit(node, context) as RuntimeResult)!!);
+            if (res.error != null) return res;
+        }
+
+        return res.success(List(elements).setContext(context).setPos(node.start, node.end));
+    }
+
+    fun visitListAccessNode(node: ListAccessNode, context: Context): RuntimeResult {
+        val res = RuntimeResult();
+        val access = res.register(visit(node.access, context) as RuntimeResult);
+
+        if (access is Number) {
+            val varName = node.list.value as String;
+            var list = context.symbolTable!!.get(varName) as Value?
+                ?: return res.failure(RuntimeError(node.start, node.end, "'$varName' is not defined", context));
+
+            list = list.copy().setPos(node.start, node.end) as List;
+
+            val (listValueAtIndex, error) = list.listAccessed(access);
+
+            return if (error != null) res.failure(error);
+            else res.success(listValueAtIndex);
+        }
+
+        return res.success(null);
     }
 }

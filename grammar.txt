@@ -1,7 +1,10 @@
 Grammar rules. First one at bottom
 
 
-expr			        : KEYWORD:VAR IDENTIFIER ASSIGN expr
+statements              : EOL* expr (EOL+ expr)*
+
+expr			        : KEYWORD:VAR IDENTIFIER ASSIGN? expr
+                        : IDENTIFIER ASSIGN expr
 						: comp-expr ((KEYWORD:AND|KEYWORD:OR) comp-expr)*
 
 comp-expr               : NOT comp-expr
@@ -18,7 +21,7 @@ power				    : call (POW factor)*
 
 call				    : atom (LPAREN (expr (COMMA expr)*)? RPAREN)?
 
-atom 			    	: INT|FLOAT|STRING|IDENTIFIER
+atom 			    	: INT|FLOAT|STRING|IDENTIFIER|IDENTIFIER (LBRACKET (INT) RBRACKET)
 						: LPAREN expr RPAREN
 						: list-expr
 						: if-expr
@@ -28,15 +31,34 @@ atom 			    	: INT|FLOAT|STRING|IDENTIFIER
 
 list-expr		        : LBRACKET (expr (COMMA expr)*)? RBRACKET
 
-if-expr		        	: KEYWORD:IF expr LBRACE exp RBRACE
-							(KEYWORD:ELIF expr LBRACE expr RBRACE)*
-							(KEYWORD:ELSE LBRACE expr RBRACE)?
+if-expr		        	: KEYWORD:IF expr LBRACE
+                          (expr if-expr-b|if-expr-c?)
+                        | (EOL statements|if-expr-b|if-expr-c)
+                          RBRACE
+
+if-expr-b		        : KEYWORD:ELIF expr LBRACE
+                          (expr if-expr-b|if-expr-c?)
+                        | (EOL statements|if-expr-b|if-expr-c)
+                          RBRACE
+
+if-expr-c               : KEYWORD:ELSE LBRACE
+                          expr
+                        | (EOL statements)
+                          RBRACE
 
 for-expr	        	: KEYWORD:FOR IDENTIFIER ASSIGN expr KEYWORD:TO expr
-							(KEYWORD:STEP expr)? LBRACE expr RBRACE
+				          (KEYWORD:STEP expr)? LBRACE
+				          expr
+				        | (EOL statements)
+				          RBRACE
 
-while-expr          	: KEYWORD:WHILE expr LBRACE expr RBRACE
+while-expr          	: KEYWORD:WHILE expr LBRACE
+                          expr
+                        | (EOL statements)
+                          RBRACE
 
 func-def		        : KEYWORD:FUN IDENTIFIER?
-							LPAREN (IDENTIFIER (COMMA IDENTIFIER)*)? RPAREN
-							ARROW? LBRACE expr RBRACE
+						  LPAREN (IDENTIFIER (COMMA IDENTIFIER)*)? RPAREN
+						  (ARROW? LBRACE expr )
+						| (EOL statements)
+						  RBRACE

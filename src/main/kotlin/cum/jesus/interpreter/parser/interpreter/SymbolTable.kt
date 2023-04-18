@@ -1,12 +1,12 @@
 package cum.jesus.interpreter.parser.interpreter
 
 class SymbolTable(val parent: SymbolTable? = null) {
-    val symbols = mutableMapOf<String, Any>();
+    val symbols = mutableMapOf<String, Value>();
 
-    fun get(name: String): Any? {
+    fun get(name: String): Value? {
         val value = symbols.getOrDefault(name, null);
         if (value == null && parent != null) {
-            parent.get(name);
+            return parent.get(name);
         }
 
         return value;

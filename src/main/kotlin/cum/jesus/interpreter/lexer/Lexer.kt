@@ -48,6 +48,9 @@ class Lexer(private val fileName: String, private var text: String) {
         while (cur != null) {
             if (cur!! in " \t") {
                 advance();
+            } else if (cur!! in ";\n") {
+                tokens.add(Token(TokenType.EOL, p_start = pos));
+                advance();
             } else if (cur!! in DIGITS) {
                 tokens.add(makeNumber());
             } else if (cur!! in LETTERS) {

@@ -1,7 +1,5 @@
 package cum.jesus.interpreter.parser
 
-import com.sun.org.apache.bcel.internal.generic.IFEQ
-import com.sun.xml.internal.bind.v2.model.core.ID
 import cum.jesus.interpreter.lexer.Token
 import cum.jesus.interpreter.lexer.TokenType
 import cum.jesus.interpreter.utils.InvalidSyntaxError
@@ -16,20 +14,70 @@ class Parser(val tokens: ArrayList<Token>) {
 
     fun advance(): Token {
         index++;
-        if (index < tokens.size) {
-            currentToken = tokens[index];
-        }
-
-        //println(currentToken)
-
+        updateCurrentToken();
         return currentToken;
     }
 
+    fun reverse(amount: Int = 1): Token {
+        index -= amount;
+        updateCurrentToken();
+        return currentToken;
+    }
+
+    fun updateCurrentToken() {
+        if (index >= 0 && index < tokens.size) {
+            currentToken = tokens[index];
+        }
+    }
+
     fun parse(): ParseResult {
-        val res = expr();
+        val res = statements();
         if (res.error == null && currentToken.type != TokenType.EOF)
             return res.failure(InvalidSyntaxError(currentToken.start, currentToken.end, "Expected '+', '-', '*' or '/'"));
         return res;
+    }
+
+    fun statements(): ParseResult {
+        val res = ParseResult();
+        val statements = ArrayList<Node?>();
+        val start = currentToken.start.copy();
+
+        while (currentToken.type == TokenType.EOL) {
+            res.registerAdvance();
+            advance();
+        }
+
+        val statement = res.register(expr());
+        if (res.error != null) return res;
+        statements.add(statement);
+
+        var moreStatements = true;
+
+        while (true) {
+            var newLines = 0;
+            while (currentToken.type == TokenType.EOL) {
+                res.registerAdvance();
+                advance();
+                newLines++;
+            }
+
+            if (newLines == 0) {
+                moreStatements = false;
+            }
+
+            if (!moreStatements) break;
+
+            val statement = res.tryRegister(expr());
+            if (statement == null) {
+                reverse(res.reverseCount);
+                moreStatements = false;
+                continue;
+            }
+
+            statements.add(statement);
+        }
+
+        return res.success(ListNode(statements, start, currentToken.end.copy()));
     }
 
     fun expr(): ParseResult {
@@ -47,7 +95,7 @@ class Parser(val tokens: ArrayList<Token>) {
             advance();
 
             if (currentToken.type != TokenType.ASSIGN) {
-                return res.failure(InvalidSyntaxError(currentToken.start, currentToken.end, "Expected '=' after variable creation"));
+                return res.success(VarAssignNode(varName, null));
             }
 
             res.registerAdvance();
@@ -56,7 +104,20 @@ class Parser(val tokens: ArrayList<Token>) {
             val expr = res.register(expr());
             if (res.error != null) return res;
 
-            return res.success(VarAssignNode(varName, expr!!));
+            return res.success(VarAssignNode(varName, expr));
+        } else if (currentToken.type == TokenType.IDENTIFIER) {
+            val name = currentToken.value;
+
+            res.registerAdvance();
+            advance();
+
+            if (currentToken.type == TokenType.ASSIGN) {
+                res.registerAdvance();
+                advance();
+
+                val expr = res.register(expr());
+                if (res.error != null) return res;
+            }
         }
 
         val node = res.register(binaryOp(::compExpr, arrayOf(TokenType.AND, TokenType.OR)));
@@ -173,7 +234,25 @@ class Parser(val tokens: ArrayList<Token>) {
         } else if (tok.type == TokenType.IDENTIFIER) {
             res.registerAdvance();
             advance();
-            return res.success(VarAccessNode(tok));
+
+            if (currentToken.type == TokenType.LBRACKET) {
+                res.registerAdvance();
+                advance();
+
+                val expr = res.register(expr());
+                if (res.error != null) return res;
+
+                if (currentToken.type == TokenType.RBRACKET) {
+                    res.registerAdvance();
+                    advance();
+
+                    return res.success(ListAccessNode(tok, expr!!, tok.start, currentToken.end.copy()));
+                } else {
+                    return res.failure(InvalidSyntaxError(currentToken.start, currentToken.end, "Expected ']'"));
+                }
+            } else {
+                return res.success(VarAccessNode(tok));
+            }
         } else if (tok.type == TokenType.LPAREN) {
             res.registerAdvance();
             advance();
@@ -216,76 +295,55 @@ class Parser(val tokens: ArrayList<Token>) {
 
     fun listExpr(): ParseResult {
         val res = ParseResult();
-        val elementNodes = ArrayList<Node>();
+        val elementNodes = ArrayList<Node?>();
         val start = currentToken.start.copy();
 
         if (currentToken.type != TokenType.LBRACKET)
             return res.failure(InvalidSyntaxError(currentToken.start, currentToken.end, "Expected ']', 'VAR', 'IF', 'FOR', 'WHILE', 'FUN', int, float, identifier, '+', '-', '(', '[' or 'NOT'"))
 
-        while (currentToken.type == TokenType.COMMA) {
+        res.registerAdvance();
+        advance();
+
+        if (currentToken.type == TokenType.RBRACKET) {
             res.registerAdvance();
             advance();
-
+        } else {
             elementNodes.add(res.register(expr())!!);
             if (res.error != null) return res;
+
+            while (currentToken.type == TokenType.COMMA) {
+                res.registerAdvance();
+                advance();
+
+                elementNodes.add(res.register(expr())!!);
+                if (res.error != null) return res;
+            }
+
+            if (currentToken.type != TokenType.RBRACKET)
+                return res.failure(InvalidSyntaxError(currentToken.start, currentToken.end, "Expected ']' or ','"));
+
+            res.registerAdvance();
+            advance();
         }
+
+        return res.success(ListNode(elementNodes, start, currentToken.end.copy()));
     }
 
     fun ifExpr(): ParseResult {
         val res = ParseResult();
-        val cases = ArrayList<Pair<Node?, Node?>>();
+        val allCases = res.register(ifExprCases(TokenType.IF));
+        if (res.error != null) return res;
+        val (cases, elseCase) = allCases as IfNode;
+        return res.success(IfNode(cases, elseCase));
+    }
+
+    fun ifExprB(): ParseResult {
+        return ifExprCases(TokenType.ELIF);
+    }
+
+    fun ifExprC(): ParseResult {
+        val res = ParseResult();
         var elseCase: Node? = null;
-
-        if (currentToken.type != TokenType.IF)
-            return res.failure(InvalidSyntaxError(currentToken.start, currentToken.end, "Expected 'if'"));
-
-        res.registerAdvance()
-        advance();
-
-        val condition = res.register(expr());
-        if (res.error != null) return res;
-
-        if (currentToken.type != TokenType.LBRACE)
-            return res.failure(InvalidSyntaxError(currentToken.start, currentToken.end, "Expected '{' after if"));
-
-        res.registerAdvance();
-        advance();
-
-        val expr = res.register(expr());
-        if (res.error != null) return res;
-        cases.add(Pair(condition, expr));
-
-        if (currentToken.type == TokenType.RBRACE) {
-            res.registerAdvance();
-            advance();
-        } else {
-            return res.failure(InvalidSyntaxError(currentToken.start, currentToken.end, "Expected '}'"));
-        }
-
-        while (currentToken.type == TokenType.ELIF) {
-            res.registerAdvance();
-            advance();
-
-            val condition = res.register(expr());
-            if (res.error != null) return res;
-
-            if (currentToken.type != TokenType.LBRACE)
-                return res.failure(InvalidSyntaxError(currentToken.start, currentToken.end, "Expected '{' after if"));
-
-            res.registerAdvance();
-            advance();
-
-            val expr = res.register(expr());
-            if (res.error != null) return res;
-            cases.add(Pair(condition, expr));
-
-            if (currentToken.type == TokenType.RBRACE) {
-                res.registerAdvance();
-                advance();
-            } else {
-                return res.failure(InvalidSyntaxError(currentToken.start, currentToken.end, "Expected '}'"));
-            }
-        }
 
         if (currentToken.type == TokenType.ELSE) {
             res.registerAdvance();
@@ -294,11 +352,10 @@ class Parser(val tokens: ArrayList<Token>) {
             if (currentToken.type != TokenType.LBRACE)
                 return res.failure(InvalidSyntaxError(currentToken.start, currentToken.end, "Expected '{' after else"));
 
-            res.registerAdvance();
-            advance();
-
-            elseCase = res.register(expr());
+            val statements = res.register(statements());
             if (res.error != null) return res;
+
+            elseCase = statements;
 
             if (currentToken.type == TokenType.RBRACE) {
                 res.registerAdvance();
@@ -307,6 +364,68 @@ class Parser(val tokens: ArrayList<Token>) {
                 return res.failure(InvalidSyntaxError(currentToken.start, currentToken.end, "Expected '}'"));
             }
         }
+
+        return res.success(elseCase);
+    }
+
+    fun ifExprBOrC(): ParseResult {
+        val res = ParseResult();
+        var cases = ArrayList<Triple<Node?, Node?, Boolean>>();
+        var elseCase: Node? = null;
+
+        if (currentToken.type == TokenType.ELIF) {
+            val allCases = res.register(ifExprB());
+            if (res.error != null) return res;
+            val (cases2, elseCase2) = allCases as IfNode;
+            cases = cases2;
+            elseCase = elseCase2;
+        } else {
+            elseCase = res.register(ifExprC());
+            if (res.error != null) return res;
+        }
+
+        return res.success(IfNode(cases, elseCase))
+    }
+
+    fun ifExprCases(type: TokenType): ParseResult {
+        val res = ParseResult();
+        val cases = ArrayList<Triple<Node?, Node?, Boolean>>();
+        var elseCase: Node? = null;
+
+        if (currentToken.type != type)
+            return res.failure(InvalidSyntaxError(currentToken.start, currentToken.end, "Expected '${type.value}'"));
+
+        res.registerAdvance()
+        advance();
+
+        val condition = res.register(expr());
+        if (res.error != null) return res;
+
+        if (currentToken.type != TokenType.LBRACE)
+            return res.failure(InvalidSyntaxError(currentToken.start, currentToken.end, "Expected '{' after '${type.value}'"));
+
+        res.registerAdvance();
+        advance();
+
+        if (currentToken.type == TokenType.EOL){
+            res.registerAdvance();
+            advance();
+        }
+
+        val statements = res.register(statements());
+        if (res.error != null) return res;
+        cases.add(Triple(condition, statements, true));
+
+        if (currentToken.type != TokenType.RBRACE)
+            return res.failure(InvalidSyntaxError(currentToken.start, currentToken.end, "Expected '}'"));
+
+        val allCases = res.register(ifExprBOrC());
+        if (res.error != null) return res;
+
+        val (newCase, elseCase2) = allCases as IfNode;
+        elseCase = elseCase2;
+
+        cases += newCase;
 
         return res.success(IfNode(cases, elseCase));
     }
@@ -359,17 +478,18 @@ class Parser(val tokens: ArrayList<Token>) {
         res.registerAdvance();
         advance();
 
-        val body = res.register(expr());
-        if (res.error != null) return res;
-
-        if (currentToken.type == TokenType.RBRACE) {
+        if (currentToken.type == TokenType.EOL) {
             res.registerAdvance();
             advance();
-        } else {
-            return res.failure(InvalidSyntaxError(currentToken.start, currentToken.end, "Expected '}'"));
         }
 
-        return res.success(ForNode(varName, startValue!!, endValue!!, stepValue, body!!));
+        val body = res.register(statements());
+        if (res.error != null) return res;
+
+        if (currentToken.type != TokenType.RBRACE)
+            return res.failure(InvalidSyntaxError(currentToken.start, currentToken.end, "Expected '}'"));
+
+        return res.success(ForNode(varName, startValue!!, endValue!!, stepValue, body!!, true));
     }
 
     fun whileExpr(): ParseResult {
@@ -390,6 +510,11 @@ class Parser(val tokens: ArrayList<Token>) {
         res.registerAdvance();
         advance();
 
+        if (currentToken.type == TokenType.EOL) {
+            res.registerAdvance();
+            advance();
+        }
+
         val body = res.register(expr());
         if (res.error != null) return res;
 
@@ -400,7 +525,7 @@ class Parser(val tokens: ArrayList<Token>) {
             return res.failure(InvalidSyntaxError(currentToken.start, currentToken.end, "Expected '}'"));
         }
 
-        return res.success(WhileNode(condition!!, body!!));
+        return res.success(WhileNode(condition!!, body!!, true));
     }
 
     fun funcDef(): ParseResult {
@@ -472,7 +597,12 @@ class Parser(val tokens: ArrayList<Token>) {
             res.registerAdvance();
             advance();
 
-            val nodeToReturn = res.register(expr());
+            if (currentToken.type == TokenType.EOL) {
+                res.registerAdvance();
+                advance();
+            }
+
+            val body = res.register(statements());
             if (res.error != null) return res;
 
             if (currentToken.type != TokenType.RBRACE)
@@ -481,7 +611,7 @@ class Parser(val tokens: ArrayList<Token>) {
             res.registerAdvance();
             advance();
 
-            return res.success(FunDefNode(varNameToken, argNameTokens, nodeToReturn!!));
+            return res.success(FunDefNode(varNameToken, argNameTokens, body!!, false));
         } else { // function has a name. will be fun function() {body}
             if (currentToken.type != TokenType.LBRACE)
                 return res.failure(InvalidSyntaxError(currentToken.start, currentToken.end, "Expected '{'"));
@@ -489,7 +619,12 @@ class Parser(val tokens: ArrayList<Token>) {
             res.registerAdvance();
             advance();
 
-            val nodeToReturn = res.register(expr());
+            if (currentToken.type == TokenType.EOL) {
+                res.registerAdvance();
+                advance();
+            }
+
+            val body = res.register(statements());
             if (res.error != null) return res;
 
             if (currentToken.type != TokenType.RBRACE)
@@ -498,7 +633,7 @@ class Parser(val tokens: ArrayList<Token>) {
             res.registerAdvance();
             advance();
 
-            return res.success(FunDefNode(varNameToken, argNameTokens, nodeToReturn!!));
+            return res.success(FunDefNode(varNameToken, argNameTokens, body!!, true));
         }
     }
 

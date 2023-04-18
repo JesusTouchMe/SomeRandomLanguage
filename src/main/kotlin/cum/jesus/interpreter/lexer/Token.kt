@@ -11,6 +11,7 @@ enum class TokenKind {
 
 enum class TokenType(val kind: TokenKind, val value: String?) {
     EOF(TokenKind.SPECIAL, null),
+    EOL(TokenKind.SPECIAL, null),
     INT(TokenKind.LITERAL, null),
     FLOAT(TokenKind.LITERAL, null),
     STRING(TokenKind.LITERAL, null),
